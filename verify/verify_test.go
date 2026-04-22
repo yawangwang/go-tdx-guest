@@ -20,11 +20,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-tdx-guest/abi"
 	"github.com/google/go-tdx-guest/pcs"
 	pb "github.com/google/go-tdx-guest/proto/tdx"
@@ -147,7 +147,7 @@ func TestPckCertificateExtensions(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if !reflect.DeepEqual(ext, pckExt) {
+			if !cmp.Equal(ext, pckExt) {
 				t.Errorf("PCK certificate's extension(%v), does not match with expected extension(%v)", ext, pckExt)
 			}
 		})
