@@ -109,8 +109,8 @@ This type contains seven fields:
     Certificate chain verification is performed using trusted roots.
 *   `MinTcbDate time.Time`: if set, TCB levels with a release date before this
     will be rejected. If unset (zero time), TCB date verification is skipped.
-*   `TcbTtl time.Duration`: if set, TCB levels with a release date older than
-    Now minus TcbTtl will be rejected. If unset (zero duration), TCB age verification
+*   `TcbTTL time.Duration`: if set, TCB levels with a release date older than
+    Now minus TcbTTL will be rejected. If unset (zero duration), TCB age verification
     is skipped.
 
 ## `rtmr`

@@ -198,9 +198,9 @@ type Options struct {
 	// If set, TCB levels with a release date before this will be rejected.
 	// If unset (zero time), TCB date verification is skipped.
 	MinTcbDate time.Time
-	// TcbTtl is the maximum allowed age of the TCB at the time of verification.
-	// If set, TCB levels with a release date older than Now minus TcbTtl will be rejected.
-	TcbTtl time.Duration
+	// TcbTTL is the maximum allowed age of the TCB at the time of verification.
+	// If set, TCB levels with a release date older than Now minus TcbTTL will be rejected.
+	TcbTTL time.Duration
 
 	chain             *PCKCertificateChain
 	collateral        *Collateral
@@ -1291,16 +1291,16 @@ func verifyQuote(quote any, options *Options) error {
 	}
 
 	tcbMinDate := options.MinTcbDate
-	if options.TcbTtl > 0 {
-		ttlMinDate := options.Now.TcbInfo.Add(-options.TcbTtl)
+	if options.TcbTTL > 0 {
+		ttlMinDate := options.Now.TcbInfo.Add(-options.TcbTTL)
 		if tcbMinDate.IsZero() || ttlMinDate.After(tcbMinDate) {
 			tcbMinDate = ttlMinDate
 		}
 	}
 
 	qeMinDate := options.MinTcbDate
-	if options.TcbTtl > 0 {
-		ttlMinDate := options.Now.QeIdentity.Add(-options.TcbTtl)
+	if options.TcbTTL > 0 {
+		ttlMinDate := options.Now.QeIdentity.Add(-options.TcbTTL)
 		if qeMinDate.IsZero() || ttlMinDate.After(qeMinDate) {
 			qeMinDate = ttlMinDate
 		}

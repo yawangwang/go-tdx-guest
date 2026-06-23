@@ -1299,7 +1299,7 @@ var rawTdxQuoteFuncs = map[string]func([]byte, *Options) error{
 	},
 }
 
-func TestTcbTtlValidation(t *testing.T) {
+func TestTcbTTLValidation(t *testing.T) {
 	getter := testcases.TestGetter
 
 	fmspcBytes := []byte{80, 128, 111, 0, 0, 0}
@@ -1363,22 +1363,22 @@ func TestTcbTtlValidation(t *testing.T) {
 	}
 
 	// TCB age (10 days) < TTL (15 days) => success
-	options.TcbTtl = 15 * 24 * time.Hour
+	options.TcbTTL = 15 * 24 * time.Hour
 	if err := verifyQuote(quote, options); err != nil {
-		t.Errorf("verifyQuote failed with TcbTtl of 15 days: %v", err)
+		t.Errorf("verifyQuote failed with TcbTTL of 15 days: %v", err)
 	}
 
 	// TCB age (10 days) > TTL (5 days) => fail
-	options.TcbTtl = 5 * 24 * time.Hour
+	options.TcbTTL = 5 * 24 * time.Hour
 	wantErr := fmt.Errorf("TDX TCB info reported by Intel PCS failed TCB status check: %v", ErrTdxTcbStatus)
 	if err := verifyQuote(quote, options); err == nil || err.Error() != wantErr.Error() {
-		t.Errorf("verifyQuote with TcbTtl of 5 days returned error %v, want %v", err, wantErr)
+		t.Errorf("verifyQuote with TcbTTL of 5 days returned error %v, want %v", err, wantErr)
 	}
 
 	// TCB age (10 days) < TTL (15 days) AND MinTcbDate (5 days ago) => fail
-	options.TcbTtl = 15 * 24 * time.Hour
+	options.TcbTTL = 15 * 24 * time.Hour
 	options.MinTcbDate = now.Add(-5 * 24 * time.Hour)
 	if err := verifyQuote(quote, options); err == nil || err.Error() != wantErr.Error() {
-		t.Errorf("verifyQuote with MinTcbDate (5 days ago) and TcbTtl (15 days) returned error %v, want %v", err, wantErr)
+		t.Errorf("verifyQuote with MinTcbDate (5 days ago) and TcbTTL (15 days) returned error %v, want %v", err, wantErr)
 	}
 }
