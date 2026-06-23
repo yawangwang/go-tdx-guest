@@ -92,7 +92,7 @@ issued by Intel requires following steps:
 3. If any of the checks above fail, the identity of the enclave does not match
    Enclave Identity published by Intel.
 
-4. Determine a TCB status of the Enclave:
+4. Determine a TCB date of the Enclave:
 
   a. Retrieve a collection of TCB Levels (sorted by ISVSVNs) from tcbLevels field
      in Enclave Identity structure.
@@ -100,7 +100,7 @@ issued by Intel requires following steps:
   b. Go over the list of TCB Levels (descending order) and find the one that has
      ISVSVN that is lower or equal to the ISVSVN value from SGX Enclave Report.
 
-  c. If a TCB level is found, read its status from tcbStatus field, otherwise
+  c. If a TCB level is found, read its date from tcbDate field, otherwise
      the TCB Level is not supported.
 
 This sample API follows a structure similar to

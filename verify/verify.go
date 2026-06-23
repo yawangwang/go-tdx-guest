@@ -194,6 +194,13 @@ type Options struct {
 	// TrustedRoots specifies the root CertPool to trust when verifying PCK certificate chain.
 	// If nil, embedded certificate will be used
 	TrustedRoots *x509.CertPool
+	// MinTcbDate is the minimum allowed release date for the TCB.
+	// If set, TCB levels with a release date before this will be rejected.
+	// If unset (zero time), TCB date verification is skipped.
+	MinTcbDate time.Time
+	// TcbTtl is the maximum allowed age of the TCB at the time of verification.
+	// If set, TCB levels with a release date older than Now minus TcbTtl will be rejected.
+	TcbTtl time.Duration
 
 	chain             *PCKCertificateChain
 	collateral        *Collateral
@@ -230,10 +237,12 @@ func DefaultOptions() *Options {
 type tdQuoteBodyOptions struct {
 	tcbInfo           pcs.TcbInfo
 	pckCertExtensions *pcs.PckExtensions
+	minTcbDate        time.Time
 }
 
 type qeReportOptions struct {
 	qeIdentity *pcs.EnclaveIdentity
+	minTcbDate time.Time
 }
 
 // PCKCertificateChain contains certificate chains
@@ -1002,18 +1011,29 @@ func readQeTcbStatus(tcbLevels []pcs.TcbLevel, isvsvn uint32) (pcs.TcbLevel, err
 	return pcs.TcbLevel{}, fmt.Errorf("no matching QE TCB level found")
 }
 
-func checkQeTcbStatus(tcbLevels []pcs.TcbLevel, isvsvn uint32) error {
+func checkQeTcb(tcbLevels []pcs.TcbLevel, isvsvn uint32, minTcbDate time.Time) error {
 	found, err := readQeTcbStatus(tcbLevels, isvsvn)
 	if err != nil {
 		return err
 	}
 
-	if found.TcbStatus == pcs.TcbComponentStatusOutOfDate {
-		return ErrEnclaveTcbStatus
+	if minTcbDate.IsZero() {
+		if found.TcbStatus == pcs.TcbComponentStatusOutOfDate {
+			return ErrEnclaveTcbStatus
+		}
+		if found.TcbStatus != pcs.TcbComponentStatusUpToDate {
+			return fmt.Errorf("QE TCB Status is not %q, found %q", pcs.TcbComponentStatusUpToDate, found.TcbStatus)
+		}
+		return nil
 	}
 
-	if found.TcbStatus != pcs.TcbComponentStatusUpToDate {
-		return fmt.Errorf("QE TCB Status is not %q, found %q", pcs.TcbComponentStatusUpToDate, found.TcbStatus)
+	tcbDate, err := time.Parse(time.RFC3339, found.TcbDate)
+	if err != nil {
+		return fmt.Errorf("failed to parse QE TCB date %q: %v", found.TcbDate, err)
+	}
+
+	if tcbDate.Before(minTcbDate) {
+		return ErrEnclaveTcbStatus
 	}
 
 	return nil
@@ -1062,16 +1082,27 @@ func isConfigurationNeeded(status pcs.TcbComponentStatus) bool {
 	return status == pcs.TcbComponentStatusConfigurationNeeded || status == pcs.TcbComponentStatusConfigurationAndSWHardeningNeeded || status == pcs.TcbComponentStatusOutOfDateConfigurationNeeded || status == pcs.TcbComponentStatusRelaunchAdvisedConfigurationNeeded
 }
 
-func determineRelaunchAdvised(teeTcbSvn2 []byte, matchedTcbLevelStatus pcs.TcbComponentStatus, tdxModuleTcbStatus pcs.TcbComponentStatus, tcbInfo pcs.TcbInfo) error {
-	// if Quote is with TDX1.5 module and if tdxModuleTcbStatus is OutOfDate, relaunch might be required
-	if teeTcbSvn2 != nil && (tdxModuleTcbStatus == pcs.TcbComponentStatusOutOfDate || tdxModuleTcbStatus == pcs.TcbComponentStatusOutOfDateConfigurationNeeded) {
+func determineRelaunchAdvised(teeTcbSvn2 []byte, matchedTcbLevel pcs.TcbLevel, tdxModuleTcbLevel pcs.TcbLevel, tcbInfo pcs.TcbInfo, minTcbDate time.Time) error {
+	var relaunchRequired bool
+	if minTcbDate.IsZero() {
+		tdxModuleStatus := tdxModuleTcbLevel.TcbStatus
+		relaunchRequired = teeTcbSvn2 != nil && (tdxModuleStatus == pcs.TcbComponentStatusOutOfDate || tdxModuleStatus == pcs.TcbComponentStatusOutOfDateConfigurationNeeded)
+	} else {
+		tdxModuleTcbDate, err := time.Parse(time.RFC3339, tdxModuleTcbLevel.TcbDate)
+		if err != nil {
+			return fmt.Errorf("failed to parse TDX Module TCB date %q: %v", tdxModuleTcbLevel.TcbDate, err)
+		}
+		relaunchRequired = teeTcbSvn2 != nil && tdxModuleTcbDate.Before(minTcbDate)
+	}
+
+	if relaunchRequired {
 		latestTcbLevel := tcbInfo.TcbLevels[0]
 		// default TDX module identity
 		if teeTcbSvn2[1] == 0 {
 			// If the host's current SVNs (at index 0 and 2) are greater than or equal to the latest requirements, it means the host has been patched.
 			//  Even if the TD was launched on an old version, the host is now capable of running a secure version.
 			if teeTcbSvn2[0] >= latestTcbLevel.Tcb.TdxTcbcomponents[0].Svn && teeTcbSvn2[2] >= latestTcbLevel.Tcb.TdxTcbcomponents[2].Svn {
-				if isConfigurationNeeded(matchedTcbLevelStatus) || isConfigurationNeeded(tdxModuleTcbStatus) {
+				if isConfigurationNeeded(matchedTcbLevel.TcbStatus) || isConfigurationNeeded(tdxModuleTcbLevel.TcbStatus) {
 					return ErrTcbTdRelaunchAdvicedConfiguratonNeeded
 				}
 
@@ -1085,7 +1116,7 @@ func determineRelaunchAdvised(teeTcbSvn2 []byte, matchedTcbLevelStatus pcs.TcbCo
 				return err
 			}
 			if uint32(teeTcbSvn2[0]) >= tdxModuleIdentity2.Tcb.Isvsvn && teeTcbSvn2[2] >= latestTcbLevel.Tcb.TdxTcbcomponents[2].Svn {
-				if isConfigurationNeeded(tdxModuleTcbStatus) || isConfigurationNeeded(matchedTcbLevelStatus) {
+				if isConfigurationNeeded(tdxModuleTcbLevel.TcbStatus) || isConfigurationNeeded(matchedTcbLevel.TcbStatus) {
 					return ErrTcbTdRelaunchAdvicedConfiguratonNeeded
 				}
 				return ErrTcbTdRelaunchAdvised
@@ -1095,7 +1126,7 @@ func determineRelaunchAdvised(teeTcbSvn2 []byte, matchedTcbLevelStatus pcs.TcbCo
 	return nil
 }
 
-func checkTcbInfoTcbStatus(tcbInfo pcs.TcbInfo, tdQuoteBody any, pckCertExtensions *pcs.PckExtensions) error {
+func checkTcbInfoTcb(tcbInfo pcs.TcbInfo, tdQuoteBody any, pckCertExtensions *pcs.PckExtensions, minTcbDate time.Time) error {
 	_, teeTcbSvn2, err := getTeeTcbSvn(tdQuoteBody)
 	if err != nil {
 		return err
@@ -1105,23 +1136,34 @@ func checkTcbInfoTcbStatus(tcbInfo pcs.TcbInfo, tdQuoteBody any, pckCertExtensio
 		return err
 	}
 
-	if found.TcbStatus == pcs.TcbComponentStatusOutOfDate {
-		return ErrTdxTcbStatus
-	}
-	var tdxModuleTcbStatus pcs.TcbComponentStatus
-	if reflect.DeepEqual(tdxModuleFound, pcs.TcbLevel{}) {
-		tdxModuleTcbStatus = pcs.TcbComponentStatusUpToDate
-	} else {
-		// when teeTcbSvn[1] > 0, tdxModuleFound is the matching TDX Module TCB Level.
-		tdxModuleTcbStatus = tdxModuleFound.TcbStatus
+	if minTcbDate.IsZero() {
+		if found.TcbStatus == pcs.TcbComponentStatusOutOfDate {
+			return ErrTdxTcbStatus
+		}
+		if !reflect.DeepEqual(tdxModuleFound, pcs.TcbLevel{}) {
+			if err := determineRelaunchAdvised(teeTcbSvn2, found, tdxModuleFound, tcbInfo, minTcbDate); err != nil {
+				return err
+			}
+		}
+		if found.TcbStatus != pcs.TcbComponentStatusUpToDate {
+			return fmt.Errorf("TDX TCB Status is not %q, found %q", pcs.TcbComponentStatusUpToDate, found.TcbStatus)
+		}
+		return nil
 	}
 
-	// Relaunch is advisable if matching TCB level status is UptoDate and TDX Module level status is OutOfDate.
-	if err := determineRelaunchAdvised(teeTcbSvn2, found.TcbStatus, tdxModuleTcbStatus, tcbInfo); err != nil {
-		return err
+	platformTcbDate, err := time.Parse(time.RFC3339, found.TcbDate)
+	if err != nil {
+		return fmt.Errorf("failed to parse TDX TCB date %q: %v", found.TcbDate, err)
 	}
-	if found.TcbStatus != pcs.TcbComponentStatusUpToDate {
-		return fmt.Errorf("TDX TCB Status is not %q, found %q", pcs.TcbComponentStatusUpToDate, found.TcbStatus)
+	if platformTcbDate.Before(minTcbDate) {
+		return ErrTdxTcbStatus
+	}
+
+	// Relaunch is advisable if matching TCB level is newer than TDX Module level.
+	if !reflect.DeepEqual(tdxModuleFound, pcs.TcbLevel{}) {
+		if err := determineRelaunchAdvised(teeTcbSvn2, found, tdxModuleFound, tcbInfo, minTcbDate); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -1169,7 +1211,7 @@ func verifyTdQuoteBody(tdQuoteBody any, tdQuoteBodyOptions *tdQuoteBodyOptions) 
 		return fmt.Errorf("AttributesMask value(%q) is not equal to TdxModule.Attributes field in Intel PCS's reported TDX TCB info(%q)", hex.EncodeToString(attributesMask), hex.EncodeToString(tdQuoteBodyOptions.tcbInfo.TdxModule.Attributes.Bytes))
 	}
 
-	if err := checkTcbInfoTcbStatus(tdQuoteBodyOptions.tcbInfo, tdQuoteBody, tdQuoteBodyOptions.pckCertExtensions); err != nil {
+	if err := checkTcbInfoTcb(tdQuoteBodyOptions.tcbInfo, tdQuoteBody, tdQuoteBodyOptions.pckCertExtensions, tdQuoteBodyOptions.minTcbDate); err != nil {
 		return fmt.Errorf("TDX TCB info reported by Intel PCS failed TCB status check: %v", err)
 	}
 	return nil
@@ -1212,7 +1254,7 @@ func verifyQeReport(qeReport *pb.EnclaveReport, qeReportOptions *qeReportOptions
 		return fmt.Errorf("ISV PRODID value(%v) in QE Report is not equal to ISV PRODID value(%v) in Intel PCS's reported QE Identity", qeReport.GetIsvProdId(), qeReportOptions.qeIdentity.IsvProdID)
 	}
 
-	if err := checkQeTcbStatus(qeReportOptions.qeIdentity.TcbLevels, qeReport.GetIsvSvn()); err != nil {
+	if err := checkQeTcb(qeReportOptions.qeIdentity.TcbLevels, qeReport.GetIsvSvn(), qeReportOptions.minTcbDate); err != nil {
 		return fmt.Errorf("QE Identity reported by Intel PCS failed TCB status check: %v", err)
 	}
 	return nil
@@ -1246,6 +1288,22 @@ func verifyQuote(quote any, options *Options) error {
 	signedData, err := getSignedData(quote)
 	if err != nil {
 		return err
+	}
+
+	tcbMinDate := options.MinTcbDate
+	if options.TcbTtl > 0 {
+		ttlMinDate := options.Now.TcbInfo.Add(-options.TcbTtl)
+		if tcbMinDate.IsZero() || ttlMinDate.After(tcbMinDate) {
+			tcbMinDate = ttlMinDate
+		}
+	}
+
+	qeMinDate := options.MinTcbDate
+	if options.TcbTtl > 0 {
+		ttlMinDate := options.Now.QeIdentity.Add(-options.TcbTtl)
+		if qeMinDate.IsZero() || ttlMinDate.After(qeMinDate) {
+			qeMinDate = ttlMinDate
+		}
 	}
 
 	chain := options.chain
@@ -1303,6 +1361,7 @@ func verifyQuote(quote any, options *Options) error {
 		if err := verifyQeReport(qeReportCertificationData.GetQeReport(),
 			&qeReportOptions{
 				qeIdentity: &collateral.QeIdentity.EnclaveIdentity,
+				minTcbDate: qeMinDate,
 			}); err != nil {
 			return err
 		}
@@ -1316,12 +1375,14 @@ func verifyQuote(quote any, options *Options) error {
 				&tdQuoteBodyOptions{
 					tcbInfo:           collateral.TdxTcbInfo.TcbInfo,
 					pckCertExtensions: pckCertExtensions,
+					minTcbDate:        tcbMinDate,
 				})
 		case *pb.QuoteV5:
 			err = verifyTdQuoteBody(q.GetTdQuoteBodyDescriptor().GetTdQuoteBodyV5(),
 				&tdQuoteBodyOptions{
 					tcbInfo:           collateral.TdxTcbInfo.TcbInfo,
 					pckCertExtensions: pckCertExtensions,
+					minTcbDate:        tcbMinDate,
 				})
 		default:
 			return fmt.Errorf("unsupported quote type: %T", quote)

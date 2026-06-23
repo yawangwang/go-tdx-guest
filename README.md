@@ -90,7 +90,7 @@ verify.TdxQuote(myAttestation, verify.Options())
 
 #### `Options` type
 
-This type contains five fields:
+This type contains seven fields:
 
 *   `GetCollateral bool`: if true, then `TdxQuote` will download the collateral
     from Intel PCS API service and check against collateral obtained.
@@ -102,11 +102,16 @@ This type contains five fields:
     The `HTTPSGetter` interface consists of a single method `Get(url string)
     (map[string][]string, []byte, error)` that should return the headers and body
     of the HTTPS response.
-*   `Now time.Time`: if `nil`, uses `time.Now()`. It is the time at which to verify
-    the validity of certificates and collaterals.
+*   `Now *TimeSet`: if `nil`, uses `defaultTimeSet()`. It is the set of times at
+    which to verify the validity of certificates and collaterals.
 *   `TrustedRoots *x509.CertPool`: if `nil`, uses the library's embedded
     certificate.
     Certificate chain verification is performed using trusted roots.
+*   `MinTcbDate time.Time`: if set, TCB levels with a release date before this
+    will be rejected. If unset (zero time), TCB date verification is skipped.
+*   `TcbTtl time.Duration`: if set, TCB levels with a release date older than
+    Now minus TcbTtl will be rejected. If unset (zero duration), TCB age verification
+    is skipped.
 
 ## `rtmr`
 
