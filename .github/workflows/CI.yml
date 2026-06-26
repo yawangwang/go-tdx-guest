@@ -28,7 +28,7 @@ jobs:
     strategy:
       matrix:
         go-version:
-          - 1.22.x
+          - 1.21.x
         os:
           - macos-latest
           - ubuntu-latest
@@ -53,15 +53,25 @@ jobs:
       - name: Generate all protobufs
         run: go generate ./...
       - name: Build all packages
-        run: go build -v ./...
+        run: |
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            go build -v -ldflags="-linkmode=external" ./...
+          else
+            go build -v ./...
+          fi
       - name: Test all packages
-        run: go test -v ./...
+        run: |
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            go test -v -ldflags="-linkmode=external" ./...
+          else
+            go test -v ./...
+          fi
 
   lint:
     strategy:
       matrix:
         go-version:
-          - 1.22.x
+          - 1.21.x
         os:
           - ubuntu-latest
     name: 'Lint ${{ matrix.dir }} (${{ matrix.os }}, Go ${{ matrix.go-version }})'
@@ -85,7 +95,7 @@ jobs:
     strategy:
       matrix:
         go-version:
-          - 1.22.x
+          - 1.21.x
         os:
           - ubuntu-latest
     name: 'Lint CGO (${{ matrix.os}}, Go ${{ matrix.go-version }})'
