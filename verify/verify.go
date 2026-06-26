@@ -32,10 +32,10 @@ import (
 	"math/big"
 	"net/url"
 	"os"
-	"reflect"
 	"strings"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-tdx-guest/abi"
 	"github.com/google/go-tdx-guest/pcs"
 	ccpb "github.com/google/go-tdx-guest/proto/checkconfig"
@@ -147,6 +147,10 @@ var (
 	ErrTdxTcbStatus = errors.New("unable to find latest status of TDX TCB, it is now OutOfDate")
 	// ErrEnclaveTcbStatus error returned when Enclave TCB status is out of date
 	ErrEnclaveTcbStatus = errors.New("unable to find latest status of Enclave TCB, it is now OutOfDate")
+	// ErrTdxTcbTooOld error returned when TDX TCB release date is before the minimum required date
+	ErrTdxTcbTooOld = errors.New("TDX TCB release date is before the minimum required date")
+	// ErrEnclaveTcbTooOld error returned when Enclave TCB release date is before the minimum required date
+	ErrEnclaveTcbTooOld = errors.New("Enclave TCB release date is before the minimum required date")
 	// ErrCertNil error returned when certificate is not provided
 	ErrCertNil = errors.New("certificate is nil")
 	// ErrParentCertNil error returned when parent certificate is not provided
@@ -603,10 +607,10 @@ func verifyCollateral(options *Options) error {
 	if collateral.EnclaveIdentityBody == nil {
 		return ErrMissingEnclaveIdentityBody
 	}
-	if reflect.DeepEqual(collateral.TdxTcbInfo, pcs.TdxTcbInfo{}) {
+	if cmp.Equal(collateral.TdxTcbInfo, pcs.TdxTcbInfo{}) {
 		return ErrTcbInfoNil
 	}
-	if reflect.DeepEqual(collateral.QeIdentity, pcs.QeIdentity{}) {
+	if cmp.Equal(collateral.QeIdentity, pcs.QeIdentity{}) {
 		return ErrQeIdentityNil
 	}
 
@@ -1033,7 +1037,7 @@ func checkQeTcb(tcbLevels []pcs.TcbLevel, isvsvn uint32, minTcbDate time.Time) e
 	}
 
 	if tcbDate.Before(minTcbDate) {
-		return ErrEnclaveTcbStatus
+		return ErrEnclaveTcbTooOld
 	}
 
 	return nil
@@ -1082,7 +1086,7 @@ func isConfigurationNeeded(status pcs.TcbComponentStatus) bool {
 	return status == pcs.TcbComponentStatusConfigurationNeeded || status == pcs.TcbComponentStatusConfigurationAndSWHardeningNeeded || status == pcs.TcbComponentStatusOutOfDateConfigurationNeeded || status == pcs.TcbComponentStatusRelaunchAdvisedConfigurationNeeded
 }
 
-func determineRelaunchAdvised(teeTcbSvn2 []byte, matchedTcbLevel pcs.TcbLevel, tdxModuleTcbLevel pcs.TcbLevel, tcbInfo pcs.TcbInfo, minTcbDate time.Time) error {
+func determineRelaunchAdvised(teeTcbSvn2 []byte, matchedTcbLevel, tdxModuleTcbLevel pcs.TcbLevel, tcbInfo pcs.TcbInfo, minTcbDate time.Time) error {
 	var relaunchRequired bool
 	if minTcbDate.IsZero() {
 		tdxModuleStatus := tdxModuleTcbLevel.TcbStatus
@@ -1140,7 +1144,7 @@ func checkTcbInfoTcb(tcbInfo pcs.TcbInfo, tdQuoteBody any, pckCertExtensions *pc
 		if found.TcbStatus == pcs.TcbComponentStatusOutOfDate {
 			return ErrTdxTcbStatus
 		}
-		if !reflect.DeepEqual(tdxModuleFound, pcs.TcbLevel{}) {
+		if !cmp.Equal(tdxModuleFound, pcs.TcbLevel{}) {
 			if err := determineRelaunchAdvised(teeTcbSvn2, found, tdxModuleFound, tcbInfo, minTcbDate); err != nil {
 				return err
 			}
@@ -1156,11 +1160,11 @@ func checkTcbInfoTcb(tcbInfo pcs.TcbInfo, tdQuoteBody any, pckCertExtensions *pc
 		return fmt.Errorf("failed to parse TDX TCB date %q: %v", found.TcbDate, err)
 	}
 	if platformTcbDate.Before(minTcbDate) {
-		return ErrTdxTcbStatus
+		return ErrTdxTcbTooOld
 	}
 
 	// Relaunch is advisable if matching TCB level is newer than TDX Module level.
-	if !reflect.DeepEqual(tdxModuleFound, pcs.TcbLevel{}) {
+	if !cmp.Equal(tdxModuleFound, pcs.TcbLevel{}) {
 		if err := determineRelaunchAdvised(teeTcbSvn2, found, tdxModuleFound, tcbInfo, minTcbDate); err != nil {
 			return err
 		}

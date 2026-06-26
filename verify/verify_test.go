@@ -19,7 +19,6 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -876,7 +875,7 @@ func TestNegativeTcbInfoTcbDateV4(t *testing.T) {
 	tcbInfo.TcbLevels[0].Tcb.Pcesvn = 0
 	minTcbDate := time.Now()
 	tcbInfo.TcbLevels[0].TcbDate = minTcbDate.Add(-24 * time.Hour).Format(time.RFC3339)
-	if gotErr, wantErr := checkTcbInfoTcb(tcbInfo, quote.GetTdQuoteBody(), ext, minTcbDate), ErrTdxTcbStatus; gotErr == nil || !errors.Is(gotErr, wantErr) {
+	if gotErr, wantErr := checkTcbInfoTcb(tcbInfo, quote.GetTdQuoteBody(), ext, minTcbDate), ErrTdxTcbTooOld; gotErr == nil || !errors.Is(gotErr, wantErr) {
 		t.Errorf("TCB date expired: checkTcbInfoTcb() = %v. Want error %v", gotErr, wantErr)
 	}
 }
@@ -909,7 +908,7 @@ func TestNegativeCheckQeDateV4(t *testing.T) {
 	qeIdentity.TcbLevels[0].Tcb.Isvsvn = 0
 	minTcbDate := time.Now()
 	qeIdentity.TcbLevels[0].TcbDate = minTcbDate.Add(-24 * time.Hour).Format(time.RFC3339)
-	if gotErr, wantErr := checkQeTcb(qeIdentity.TcbLevels, qeReport.GetIsvSvn(), minTcbDate), ErrEnclaveTcbStatus; gotErr == nil || !errors.Is(gotErr, wantErr) {
+	if gotErr, wantErr := checkQeTcb(qeIdentity.TcbLevels, qeReport.GetIsvSvn(), minTcbDate), ErrEnclaveTcbTooOld; gotErr == nil || !errors.Is(gotErr, wantErr) {
 		t.Errorf("TCB date expired: checkQeTcb() = %v. Want error %v", gotErr, wantErr)
 	}
 }
@@ -1351,34 +1350,71 @@ func TestTcbTTLValidation(t *testing.T) {
 	tcbInfo.TcbLevels[0].TcbDate = now.Add(-10 * 24 * time.Hour).Format(time.RFC3339)   // outside TTL
 	qeIdentity.TcbLevels[0].TcbDate = now.Add(-1 * 24 * time.Hour).Format(time.RFC3339) // inside TTL
 
-	options := &Options{
-		GetCollateral: true,
-		Now: &TimeSet{
-			TcbInfo:    now,
-			QeIdentity: now,
+	testcases := []struct {
+		name    string
+		options Options
+		wantErr error
+	}{
+		{
+			name: "TCB age (10 days) < TTL (15 days) => success",
+			options: Options{
+				GetCollateral: true,
+				Now: &TimeSet{
+					TcbInfo:    now,
+					QeIdentity: now,
+				},
+				chain:             chain,
+				collateral:        collateral,
+				pckCertExtensions: ext,
+				TcbTTL:            15 * 24 * time.Hour,
+			},
+			wantErr: nil,
 		},
-		chain:             chain,
-		collateral:        collateral,
-		pckCertExtensions: ext,
+		{
+			name: "TCB age (10 days) > TTL (5 days) => fail",
+			options: Options{
+				GetCollateral: true,
+				Now: &TimeSet{
+					TcbInfo:    now,
+					QeIdentity: now,
+				},
+				chain:             chain,
+				collateral:        collateral,
+				pckCertExtensions: ext,
+				TcbTTL:            5 * 24 * time.Hour,
+			},
+			wantErr: ErrTdxTcbTooOld,
+		},
+		{
+			name: "TCB age (10 days) < TTL (15 days) AND MinTcbDate (5 days ago) => fail",
+			options: Options{
+				GetCollateral: true,
+				Now: &TimeSet{
+					TcbInfo:    now,
+					QeIdentity: now,
+				},
+				chain:             chain,
+				collateral:        collateral,
+				pckCertExtensions: ext,
+				TcbTTL:            15 * 24 * time.Hour,
+				MinTcbDate:        now.Add(-5 * 24 * time.Hour),
+			},
+			wantErr: ErrTdxTcbTooOld,
+		},
 	}
 
-	// TCB age (10 days) < TTL (15 days) => success
-	options.TcbTTL = 15 * 24 * time.Hour
-	if err := verifyQuote(quote, options); err != nil {
-		t.Errorf("verifyQuote failed with TcbTTL of 15 days: %v", err)
-	}
-
-	// TCB age (10 days) > TTL (5 days) => fail
-	options.TcbTTL = 5 * 24 * time.Hour
-	wantErr := fmt.Errorf("TDX TCB info reported by Intel PCS failed TCB status check: %v", ErrTdxTcbStatus)
-	if err := verifyQuote(quote, options); err == nil || err.Error() != wantErr.Error() {
-		t.Errorf("verifyQuote with TcbTTL of 5 days returned error %v, want %v", err, wantErr)
-	}
-
-	// TCB age (10 days) < TTL (15 days) AND MinTcbDate (5 days ago) => fail
-	options.TcbTTL = 15 * 24 * time.Hour
-	options.MinTcbDate = now.Add(-5 * 24 * time.Hour)
-	if err := verifyQuote(quote, options); err == nil || err.Error() != wantErr.Error() {
-		t.Errorf("verifyQuote with MinTcbDate (5 days ago) and TcbTTL (15 days) returned error %v, want %v", err, wantErr)
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := verifyQuote(quote, &tc.options)
+			if err != nil {
+				if tc.wantErr == nil {
+					t.Errorf("verifyQuote failed: %v", err)
+				} else if !strings.Contains(err.Error(), tc.wantErr.Error()) {
+					t.Errorf("verifyQuote error mismatch:\n got: %v\nwant: %v", err, tc.wantErr)
+				}
+			} else if tc.wantErr != nil {
+				t.Errorf("verifyQuote got nil, want: %v", tc.wantErr)
+			}
+		})
 	}
 }
