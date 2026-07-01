@@ -224,8 +224,9 @@ func defaultTimeSet() *TimeSet {
 // DefaultOptions returns a useful default verification option setting
 func DefaultOptions() *Options {
 	return &Options{
-		Getter: trust.DefaultHTTPSGetter(),
-		Now:    defaultTimeSet(),
+		Getter:         trust.DefaultHTTPSGetter(),
+		Now:            defaultTimeSet(),
+		TcbStatusCheck: true,
 	}
 }
 
