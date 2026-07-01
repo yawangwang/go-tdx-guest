@@ -107,8 +107,8 @@ This type contains six fields:
 *   `TrustedRoots *x509.CertPool`: if `nil`, uses the library's embedded
     certificate.
     Certificate chain verification is performed using trusted roots.
-*   `TcbStatusCheck bool`: if true (default), then `TdxQuote` will check the TCB
-    status reported by Intel PCS. If false, TCB status checks are skipped.
+*   `DisableTcbStatusCheck bool`: if true, then `TdxQuote` will NOT check the TCB
+    status reported by Intel PCS. Default is `false`.
 
 ## `rtmr`
 

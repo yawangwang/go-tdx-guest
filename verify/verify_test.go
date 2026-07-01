@@ -945,7 +945,7 @@ func TestValidateCRL(t *testing.T) {
 
 func TestNegativeRawQuoteVerifyWithCollateral(t *testing.T) {
 	getter := testcases.TestGetter
-	options := &Options{CheckRevocations: true, GetCollateral: true, Getter: getter, Now: testTimeSet(currentTime), TcbStatusCheck: true}
+	options := &Options{CheckRevocations: true, GetCollateral: true, Getter: getter, Now: testTimeSet(currentTime), DisableTcbStatusCheck: false}
 	wantErr := "TDX TCB info reported by Intel PCS failed TCB status check: no matching TCB level found"
 	// Due to updated SVN values in the sample response, it will result in TCB status failure,
 	// when compared to the TD Quote Body's TeeTcbSvn value.
@@ -1232,7 +1232,7 @@ var rawTdxQuoteFuncs = map[string]func([]byte, *Options) error{
 	},
 }
 
-func TestTcbStatusCheckOption(t *testing.T) {
+func TestDisableTcbStatusCheckOption(t *testing.T) {
 	getter := testcases.TestGetter
 
 	fmspcBytes := []byte{80, 128, 111, 0, 0, 0}
@@ -1283,26 +1283,26 @@ func TestTcbStatusCheckOption(t *testing.T) {
 	tcbInfo.TcbLevels[0].TcbStatus = "OutOfDate"
 
 	optsFalse := Options{
-		GetCollateral:     true,
-		Now:               defaultTimeSet(),
-		chain:             chain,
-		collateral:        collateral,
-		pckCertExtensions: ext,
-		TcbStatusCheck:    false,
+		GetCollateral:         true,
+		Now:                   defaultTimeSet(),
+		chain:                 chain,
+		collateral:            collateral,
+		pckCertExtensions:     ext,
+		DisableTcbStatusCheck: true,
 	}
 	if err := verifyQuote(quote, &optsFalse); err != nil {
-		t.Errorf("verifyQuote() with TcbStatusCheck=false got error %v, want nil", err)
+		t.Errorf("verifyQuote() with DisableTcbStatusCheck=true got error %v, want nil", err)
 	}
 
 	optsTrue := Options{
-		GetCollateral:     true,
-		Now:               defaultTimeSet(),
-		chain:             chain,
-		collateral:        collateral,
-		pckCertExtensions: ext,
-		TcbStatusCheck:    true,
+		GetCollateral:         true,
+		Now:                   defaultTimeSet(),
+		chain:                 chain,
+		collateral:            collateral,
+		pckCertExtensions:     ext,
+		DisableTcbStatusCheck: false,
 	}
 	if err := verifyQuote(quote, &optsTrue); err == nil || !strings.Contains(err.Error(), ErrTdxTcbStatus.Error()) {
-		t.Errorf("verifyQuote() with TcbStatusCheck=true got %v, want error containing %v", err, ErrTdxTcbStatus)
+		t.Errorf("verifyQuote() with DisableTcbStatusCheck=false got %v, want error containing %v", err, ErrTdxTcbStatus)
 	}
 }

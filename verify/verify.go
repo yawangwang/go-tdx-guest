@@ -194,8 +194,8 @@ type Options struct {
 	// TrustedRoots specifies the root CertPool to trust when verifying PCK certificate chain.
 	// If nil, embedded certificate will be used
 	TrustedRoots *x509.CertPool
-	// TcbStatusCheck set to true if the verifier should check TCB status reported by Intel PCS.
-	TcbStatusCheck bool
+	// DisableTcbStatusCheck set to true if the verifier should NOT check TCB status reported by Intel PCS.
+	DisableTcbStatusCheck bool
 
 	chain             *PCKCertificateChain
 	collateral        *Collateral
@@ -224,21 +224,21 @@ func defaultTimeSet() *TimeSet {
 // DefaultOptions returns a useful default verification option setting
 func DefaultOptions() *Options {
 	return &Options{
-		Getter:         trust.DefaultHTTPSGetter(),
-		Now:            defaultTimeSet(),
-		TcbStatusCheck: true,
+		Getter:                trust.DefaultHTTPSGetter(),
+		Now:                   defaultTimeSet(),
+		DisableTcbStatusCheck: false,
 	}
 }
 
 type tdQuoteBodyOptions struct {
-	tcbInfo           pcs.TcbInfo
-	pckCertExtensions *pcs.PckExtensions
-	tcbStatusCheck    bool
+	tcbInfo               pcs.TcbInfo
+	pckCertExtensions     *pcs.PckExtensions
+	disableTcbStatusCheck bool
 }
 
 type qeReportOptions struct {
-	qeIdentity     *pcs.EnclaveIdentity
-	tcbStatusCheck bool
+	qeIdentity            *pcs.EnclaveIdentity
+	disableTcbStatusCheck bool
 }
 
 // PCKCertificateChain contains certificate chains
@@ -1174,7 +1174,7 @@ func verifyTdQuoteBody(tdQuoteBody any, tdQuoteBodyOptions *tdQuoteBodyOptions) 
 		return fmt.Errorf("AttributesMask value(%q) is not equal to TdxModule.Attributes field in Intel PCS's reported TDX TCB info(%q)", hex.EncodeToString(attributesMask), hex.EncodeToString(tdQuoteBodyOptions.tcbInfo.TdxModule.Attributes.Bytes))
 	}
 
-	if tdQuoteBodyOptions.tcbStatusCheck {
+	if !tdQuoteBodyOptions.disableTcbStatusCheck {
 		if err := checkTcbInfoTcbStatus(tdQuoteBodyOptions.tcbInfo, tdQuoteBody, tdQuoteBodyOptions.pckCertExtensions); err != nil {
 			return fmt.Errorf("TDX TCB info reported by Intel PCS failed TCB status check: %v", err)
 		}
@@ -1219,7 +1219,7 @@ func verifyQeReport(qeReport *pb.EnclaveReport, qeReportOptions *qeReportOptions
 		return fmt.Errorf("ISV PRODID value(%v) in QE Report is not equal to ISV PRODID value(%v) in Intel PCS's reported QE Identity", qeReport.GetIsvProdId(), qeReportOptions.qeIdentity.IsvProdID)
 	}
 
-	if qeReportOptions.tcbStatusCheck {
+	if !qeReportOptions.disableTcbStatusCheck {
 		if err := checkQeTcbStatus(qeReportOptions.qeIdentity.TcbLevels, qeReport.GetIsvSvn()); err != nil {
 			return fmt.Errorf("QE Identity reported by Intel PCS failed TCB status check: %v", err)
 		}
@@ -1311,8 +1311,8 @@ func verifyQuote(quote any, options *Options) error {
 		logger.V(1).Info("Verifying QE Report using QE Identity API response")
 		if err := verifyQeReport(qeReportCertificationData.GetQeReport(),
 			&qeReportOptions{
-				qeIdentity:     &collateral.QeIdentity.EnclaveIdentity,
-				tcbStatusCheck: options.TcbStatusCheck,
+				qeIdentity:            &collateral.QeIdentity.EnclaveIdentity,
+				disableTcbStatusCheck: options.DisableTcbStatusCheck,
 			}); err != nil {
 			return err
 		}
@@ -1324,16 +1324,16 @@ func verifyQuote(quote any, options *Options) error {
 		case *pb.QuoteV4:
 			err = verifyTdQuoteBody(q.GetTdQuoteBody(),
 				&tdQuoteBodyOptions{
-					tcbInfo:           collateral.TdxTcbInfo.TcbInfo,
-					pckCertExtensions: pckCertExtensions,
-					tcbStatusCheck:    options.TcbStatusCheck,
+					tcbInfo:               collateral.TdxTcbInfo.TcbInfo,
+					pckCertExtensions:     pckCertExtensions,
+					disableTcbStatusCheck: options.DisableTcbStatusCheck,
 				})
 		case *pb.QuoteV5:
 			err = verifyTdQuoteBody(q.GetTdQuoteBodyDescriptor().GetTdQuoteBodyV5(),
 				&tdQuoteBodyOptions{
-					tcbInfo:           collateral.TdxTcbInfo.TcbInfo,
-					pckCertExtensions: pckCertExtensions,
-					tcbStatusCheck:    options.TcbStatusCheck,
+					tcbInfo:               collateral.TdxTcbInfo.TcbInfo,
+					pckCertExtensions:     pckCertExtensions,
+					disableTcbStatusCheck: options.DisableTcbStatusCheck,
 				})
 		default:
 			return fmt.Errorf("unsupported quote type: %T", quote)
