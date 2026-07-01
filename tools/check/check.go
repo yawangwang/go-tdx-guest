@@ -114,7 +114,7 @@ var (
 	getcollateral   = flag.String("get_collateral", "", "If true, then permitted to download necessary collaterals for additional checks.")
 	timeout         = flag.Duration("timeout", defaultTimeout, "Duration to continue to retry failed HTTP requests.")
 	maxRetryDelay   = flag.Duration("max_retry_delay", defaultMaxRetryDelay, "Maximum Duration to wait between HTTP request retries.")
-	tcbStatusCheck  = flag.Bool("tcb_status_check", false, "If true, checks the TCB status reported by Intel PCS.")
+	tcbStatusCheck  = flag.Bool("tcb_status_check", true, "If true, checks the TCB status reported by Intel PCS.")
 	testLocalGetter = flag.Bool("test_local_getter", false, "Use this flag only to test this CLI tool when network access is not available")
 
 	// Assign the values of the flags to the corresponding proto fields
